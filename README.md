@@ -9,7 +9,7 @@ During the broadcast of the helicopter shooting, it is necessary to automaticall
 ### CV methods which we use
 - YOLO
 
-We  train YOLO to recognize one class of racing cars
+We  train YOLO to recognize one class of racing cars and plate with number
 
 How to run YOLO model for detection:
 
@@ -20,7 +20,13 @@ git clone https://github.com/EvgeniaKomleva/Intro2CV.git`
 
 `pip install -qr requirements.txt  `
 
+For cars detecion:
+
 `python detect.py --weights ./runs/train/exp24/weights/best.pt --img 416 --conf 0.4 --source data/images/cars
+`
+For numbers detection:
+
+`python detect.py --weights ./runs/train/exp26/weights/best.pt --img 416 --conf 0.4 --source data/images/cars
 `
 
 - Histogram for color determination
