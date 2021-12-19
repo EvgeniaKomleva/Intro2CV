@@ -1,12 +1,12 @@
 # Intro to CV final project 
 
 ## Identification of cars from different teams
-###Problem description
+### Problem description
 During the broadcast of the helicopter shooting, it is necessary to automatically identify the racing car and its belonging to the team in the frame.
 
 
 
-###CV methods which we use
+### CV methods which we use
 - YOLO
 
 We plan to train YOLO to recognize one class of racing cars
