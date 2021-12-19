@@ -9,7 +9,10 @@ During the broadcast of the helicopter shooting, it is necessary to automaticall
 ### CV methods which we use
 - YOLO
 
-We plan to train YOLO to recognize one class of racing cars
+We  train YOLO to recognize one class of racing cars
+
+`python detect.py --weights ./runs/train/exp24/weights/best.pt --img 416 --conf 0.4 --source data/images/cars
+`
 
 - Histogram for color determination
 
