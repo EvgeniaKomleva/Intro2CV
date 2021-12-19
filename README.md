@@ -11,6 +11,15 @@ During the broadcast of the helicopter shooting, it is necessary to automaticall
 
 We  train YOLO to recognize one class of racing cars
 
+How to run YOLO model for detection:
+
+`
+git clone https://github.com/EvgeniaKomleva/Intro2CV.git`
+
+`cd Intro2CV`
+
+`pip install -qr requirements.txt  `
+
 `python detect.py --weights ./runs/train/exp24/weights/best.pt --img 416 --conf 0.4 --source data/images/cars
 `
 
