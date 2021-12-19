@@ -22,11 +22,11 @@ git clone https://github.com/EvgeniaKomleva/Intro2CV.git`
 
 For cars detecion:
 
-`python detect.py --weights ./runs/train/exp24/weights/best.pt --img 416 --conf 0.4 --source data/images/cars
+`python detect.py --weights yolov5s.pt --img 416 --conf 0.4 --source data/images/cars --classes 2
 `
 For numbers detection:
 
-`python detect.py --weights ./runs/train/exp26/weights/best.pt --img 416 --conf 0.4 --source data/images/cars
+`python detect.py --weights ./runs/train/exp26/weights/best.pt --img 416 --conf 0.4 --source data/images/cars 
 `
 
 - Histogram for color determination
