@@ -15,6 +15,80 @@ import cv2
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
+from collections import defaultdict
+from motrackers import IOUTracker
+n_of_top_hue_vals = 10
+thresh = 10
+thresh2 = 4
+def get_cont(img):
+    grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    mask = cv2.threshold(grey, 255, 255, cv2.THRESH_OTSU)[1]
+    img = cv2.bitwise_and(img, img, mask = mask)
+    return img
+
+def get_top_HUE(img, n):
+    values = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)[:, :, 0].flatten() 
+    color_dict = defaultdict(int)
+    for x in values:
+        color_dict[x] += 1
+    color_dict_sorted = sorted(color_dict.items(), reverse = True, key=lambda item: item[1])
+    #the first hue value is always 0 so:
+    return [int(color_dict_sorted[i][0]) for i in range(1, n + 1)]
+    
+def check_HUE_difference(query, hue_agr, n):
+    # print(len(hue1), len(hue2), n+1)
+    diff_arr = []
+    for hue in hue_agr:
+        diff_arr.append(sum([abs(hue[i] - query[i]) for i in range(0, n)]))
+    delta = np.mean(diff_arr)
+    return delta
+
+def get_team(img, color_table):
+    img = get_cont(img) #delete the asphalt
+    top_hue = get_top_HUE(img, n_of_top_hue_vals)
+    best_delta = 1801 #absolutely different hues
+    best_team = -1
+
+    for team, hue in color_table.items():
+        delta = check_HUE_difference(top_hue, hue, n_of_top_hue_vals)
+        if delta < best_delta:
+            best_delta = delta
+            best_team = team
+  
+
+    return best_team
+
+
+# def get_team(img, color_table, new_cars):
+#     img = get_cont(img) #delete the asphalt
+#     top_hue = get_top_HUE(img, n_of_top_hue_vals)
+#     best_delta = 1801 #absolutely different hues
+#     best_team = -1
+
+#     for team, hue in color_table.items():
+#         delta = check_HUE_difference(top_hue, hue, n_of_top_hue_vals)
+#         if delta < thresh * n_of_top_hue_vals and delta < best_delta:
+#             best_delta = delta
+#             best_team = team
+            
+#     if (best_team > 0):
+#         return (best_team, new_cars)
+
+#     if new_cars > 0:
+#         new_cars-=1
+#         return (best_team, new_cars)
+    
+#     best_delta = 1801 #absolutely different hues
+#     best_team = -1
+#     for team, hue in color_table.items():
+#         delta = check_HUE_difference(top_hue, hue, n_of_top_hue_vals)
+#         if delta < best_delta:
+#             best_delta = delta
+#             best_team = team
+#     return (best_team, new_cars)
+
+
+
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -42,7 +116,7 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         view_img=False,  # show results
         save_txt=False,  # save results to *.txt
         save_conf=False,  # save confidences in --save-txt labels
-        save_crop=False,  # save cropped prediction boxes
+        save_crop=True,  # save cropped prediction boxes
         nosave=False,  # do not save images/videos
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
@@ -128,6 +202,14 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         bs = 1  # batch_size
     vid_path, vid_writer = [None] * bs, [None] * bs
 
+    # Team table
+
+    color_table = {}
+    fill_flag = True
+    prev_teams = []
+    prev_num = 0
+    tracker = IOUTracker(max_lost=2, iou_threshold=0.5, min_detection_confidence=0.4, max_detection_confidence=0.7,
+                             tracker_output_format='mot_challenge')
     # Run inference
     if pt and device.type != 'cpu':
         model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
@@ -186,7 +268,6 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         # Second-stage classifier (optional)
         if classify:
             pred = apply_classifier(pred, modelc, img, im0s)
-
         # Process predictions
         for i, det in enumerate(pred):  # per image
             seen += 1
@@ -202,7 +283,13 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if save_crop else im0  # for save_crop
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
+
+            bboxes, confidences, class_ids, cords = [], [], [], []
+            new_cars = 0
+            if prev_num > len(det):
+                new_cars = prev_num - len(det)
             if len(det):
+                new_cars = len(det) - prev_num
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
@@ -213,24 +300,53 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
-                    if save_txt:  # Write to file
-                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                        line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
-                        with open(txt_path + '.txt', 'a') as f:
-                            f.write(('%g ' * len(line)).rstrip() % line + '\n')
+                    xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4))).view(-1).tolist()  # normalized xywh
+                    bboxes.append(xywh)
+                    confidences.append(conf)
+                    class_ids.append(cls)
+                    cords.append(xyxy)
+                prev_num = len(det)
 
-                    if save_img or save_crop or view_img:  # Add bbox to image
-                        c = int(cls)  # integer class
-                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-                        annotator.box_label(xyxy, label, color=colors(c, True))
-                        if save_crop:
-                            save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
+            tracks = tracker.update(bboxes, confidences, class_ids)
+            draw_tracks(im0, tracks)
+            # print(prev_teams)
+            for tr in tracks:
+                ID = tr[1]
+                xmin = tr[2]
+                ymin = tr[3]
+                width = tr[4]
+                height = tr[5]
 
+                xyxy = [int(xmin - 0.5*width), int(ymin - 0.5*height), int(xmin + 0.5*width), int(ymin + 0.5*height)]
+                img = save_one_box(xyxy, imc, save=False, BGR=True)
+                if fill_flag:
+                    color_table[ID] = []
+                    prev_teams.append(ID)
+                if (ID in prev_teams):
+                    color_table[ID].append(get_top_HUE(img, n_of_top_hue_vals))
+                else:
+                    #In case of NEW cars can enter the frame 
+                    # nearest, new_cars = get_team(img, color_table, new_cars)
+                    nearest = get_team(img, color_table)
+                    if (nearest == -1):
+                        color_table[ID] = [get_top_HUE(img, n_of_top_hue_vals)]
+                    else:
+                        ID = nearest
+                    prev_teams.append(ID)
+
+                # print(xyxy, xcentroid, ycentroid)
+                annotator.box_label(xyxy, "Team " +str(ID), color=colors(c, True))
+            
+            prev_num = len(det)
+            fill_flag = False
             # Print time (inference-only)
             print(f'{s}Done. ({t3 - t2:.3f}s)')
 
             # Stream results
             im0 = annotator.result()
+
+            #Added tracker implementation:
+
             if view_img:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
@@ -253,6 +369,7 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
                             save_path += '.mp4'
                         vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer[i].write(im0)
+        
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
@@ -262,6 +379,35 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         print(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
         strip_optimizer(weights)  # update model (to fix SourceChangeWarning)
+
+def draw_tracks(image, tracks):
+    """
+    Draw on input image.
+
+    Args:
+        image (numpy.ndarray): image
+        tracks (list): list of tracks to be drawn on the image.
+
+    Returns:
+        numpy.ndarray: image with the track-ids drawn on it.
+    """
+
+    for trk in tracks:
+
+        trk_id = trk[1]
+        xmin = trk[2]
+        ymin = trk[3]
+        width = trk[4]
+        height = trk[5]
+
+        xcentroid, ycentroid = int(xmin + 0.5*width), int(ymin + 0.5*height)
+
+        text = "ID {}".format(trk_id)
+        cv2.putText(image, text, (xcentroid - 10, ycentroid - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        cv2.circle(image, (xcentroid, ycentroid), 4, (0, 255, 0), -1)
+
+    return image
+
 
 
 def parse_opt():
